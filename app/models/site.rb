@@ -10,35 +10,39 @@ class Site < ActiveRecord::Base
   validates_uniqueness_of :url
   validates_url_format_of :url
   validates_url_format_of :repository_url, :allow_nil => true, :allow_blank => true
-  validate :url_is_heroku?  
-  
+  validate :url_is_heroku?
+
   belongs_to :user
-  
+
   scope :search, lambda {|keyword| where(["
-    name LIKE ? OR 
-    url LIKE ? OR 
-    description LIKE ? OR 
+    name LIKE ? OR
+    url LIKE ? OR
+    description LIKE ? OR
     creator LIKE ? OR
     hash_tag LIKE ? OR
     repository_url LIKE ?
-    ", 
+    ",
     "%#{keyword}%", "%#{keyword}%", "%#{keyword}%",
     "%#{keyword}%", "%#{keyword}%", "%#{keyword}%"
   ])}
   scope :please_designed, where(:please_design => TRUE)
-  
+
   def hash_tags
     '#' + self.hash_tag.split(' ').join(' #')
   end
-  
+
   def domain
     self.url.gsub(%r{http(?:s)?://([^/]+).+}, '\1')
   end
-  
+
   def same_creators
     Site.where(:creator => self.creator)
   end
-  
+
+  def same_creators_without_self
+    same_creators.where("id != ?", self.id)
+  end
+
   def self.pickups
     Rails.cache.fetch("model_site_pickups", :expires_in => 15.minutes) do
       Site.all.sort_by{rand}[0..2]
@@ -55,7 +59,7 @@ class Site < ActiveRecord::Base
         ipaddress = Resolv.getaddress host
       rescue => e
         logger.error e.message
-        errors.add :url, ' does not appear to be a valid heroku URL' 
+        errors.add :url, ' does not appear to be a valid heroku URL'
         return
       end
       unless APP_CONFIG[:heroku][:custom_domain].include? ipaddress

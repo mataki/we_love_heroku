@@ -24,7 +24,7 @@
   <dt>Has tag</dt>
   <dd><%=link_to "##{@site.hash_tag.split(' ').join(' #')}", "http://twitter.com/search?q=#{CGI::escape(@site.hash_tags)}" %></dd>
   <% end %>
-  
+
   <% if @site.user.present? %>
   <dt>Registerd By</dt>
   <dd><%= render 'users/user', :user => @site.user %></dd>
@@ -35,11 +35,11 @@
 <% end %>
 </section>
 
-<% if @same_creators.present? %>
+<% unless @site.same_creators_without_self.empty? %>
 <section class="well">
   <h3><%= t('.same_creators.h3', :creator => @site.creator)%></h3>
   <ul class="same_creators unstyled">
-  <% @same_creators.each do |site| %>
+  <% @site.same_creators_without_self.each do |site| %>
     <li><%=link_to site.name, site_path(site) %></li>
   <% end %>
   </ul>
