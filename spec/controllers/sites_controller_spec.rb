@@ -25,7 +25,7 @@ describe SitesController do
     sign_in user
     valid_attributes[:user_id] = user.id
   end
-  
+
   describe "GET index" do
     context 'no parameter' do
       before do
@@ -33,7 +33,6 @@ describe SitesController do
         get :index, {}
       end
       it { assigns(:sites).should eq([@site]) }
-      it { assigns(:pickups).should be_instance_of Array }
     end
     context 'with keyword' do
       before do
@@ -42,7 +41,7 @@ describe SitesController do
       it { response.should be_success }
     end
   end
-  
+
   describe "GET show" do
     it "assigns the requested site as @site" do
       site = Site.create! valid_attributes
