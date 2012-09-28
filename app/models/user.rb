@@ -12,78 +12,75 @@ class User < ActiveRecord::Base
   has_many :sites, :dependent => :destroy
 
   def self.find_for_facebook_oauth(auth, current_user = nil)
-    find_or_create_from_auth_infos(auth, :facebook, current_user)
+    data = {:uid => auth['uid'].to_s, :access_token => auth['credentials']['token']}
+    begin
+      profiles = SocialSync::Facebook.profiles auth['credentials']['token'], {:uid => [auth['uid']]}
+      data[:name] = profiles[0][:name]
+      data[:image] = profiles[0][:pic_square]
+    rescue => e
+      logger.error e
+      data[:name] = auth['info']['name']
+      data[:image] = auth['info']['image'].gsub(/(type=)(.*)/, '\1')
+    end
+    data[:email] = auth['info']['email']
+
+    provider_id = Provider.facebook.id
+
+    find_or_create_from_auth_infos(data, provider_id, current_user)
   end
 
   def self.find_for_twitter_oauth(auth, current_user = nil)
-    find_or_create_from_auth_infos(auth, :twitter, current_user)
+    data = {:uid => auth['uid'].to_s, :access_token => auth['credentials']['token']}
+    data[:name] = auth['info']['nickname']
+    data[:image] = auth['info']['image']
+    data[:email] = "#{auth['uid']}@twitter.example.com" # twitter return no email, so set dummy email address because of email wanne be unique.
+    data[:secret] = auth['credentials']['secret']
+
+    provider_id = Provider.twitter.id
+
+    find_or_create_from_auth_infos(data, provider_id, current_user)
   end
 
   def self.find_for_github_oauth(auth, current_user = nil)
-    find_or_create_from_auth_infos(auth, :github, current_user)
+    data = {:uid => auth['uid'].to_s, :access_token => auth['credentials']['token']}
+    data[:name] = auth['info']['nickname']
+    data[:image] = auth['extra']['raw_info']['avatar_url']
+    data[:email] = auth['info']['email'] || "#{auth['uid']}@github.example.com"
+
+    provider_id = Provider.github.id
+
+    find_or_create_from_auth_infos(data, provider_id, current_user)
   end
 
-  def self.auth_to_info_hash(auth, provider)
-    result = {}
-    case provider
-    when :facebook
-      begin
-        profiles = SocialSync::Facebook.profiles auth['credentials']['token'], {:uid => [auth['uid']]}
-        result[:name] = profiles[0][:name]
-        result[:image] = profiles[0][:pic_square]
-      rescue => e
-        logger.error e
-        result[:name] = auth['info']['name']
-        result[:image] = auth['info']['image'].gsub(/(type=)(.*)/, '\1')
-      end
-      result[:email] = auth['info']['email']
+  def self.find_or_create_from_auth_infos(data, provider_id, current_user)
+    providers_user = ProvidersUser.find_by_provider_id_and_user_key provider_id, data['uid']
 
-    when :twitter
-      result[:name] = auth['info']['nickname']
-      result[:image] = auth['info']['image']
-      result[:email] = "#{auth['uid']}@twitter.example.com" # twitter return no email, so set dummy email address because of email wanne be unique.
-      result[:secret] = auth['credentials']['secret']
-
-    when :github
-      result[:name] = auth['info']['nickname']
-      result[:image] = auth['extra']['raw_info']['avatar_url']
-      result[:email] = auth['info']['email'] || "#{auth['uid']}@github.example.com"
-    end
-    result[:uid] = auth['uid'].to_s
-    result[:token] = auth['credentials']['token']
-
-    result
-  end
-
-  def self.find_or_create_from_auth_infos(auth, provider_name, current_user)
-    data = auth_to_info_hash(auth, provider_name)
-
-    provider_id = Provider.send(provider_name).id
-    providers_user = ProvidersUser.find_by_provider_id_and_user_key provider_id, auth['uid'].to_s
-    if providers_user.nil?
-      user = current_user || User.create!({
-        :password => Devise.friendly_token[0,20],
-        :name => data[:name],
-        :email => data[:email],
-        :image => data[:image],
-        :default_provider_id => provider_id
-      })
-    else
-      user = User.find providers_user[:user_id]
-      if current_user.nil?
-        user.default_provider_id = provider_id
-      end
-      if user.default_provider_id == provider_id
-        user.name = data[:name]
-        user.image = data[:image]
-      end
-      user.save!
-    end
+    user = if providers_user.nil?
+             current_user || User.create!({
+               :password => Devise.friendly_token[0,20],
+               :name => data[:name],
+               :email => data[:email],
+               :image => data[:image],
+               :default_provider_id => provider_id
+             })
+           else
+             user = User.find providers_user[:user_id]
+             if current_user.nil?
+               user.default_provider_id = provider_id
+             end
+             if user.default_provider_id == provider_id
+               user.name = data[:name]
+               user.image = data[:image]
+             end
+             user.save!
+             user
+           end
 
     providers_user ||= ProvidersUser.new
     providers_user.provider_id = provider_id
     providers_user.user_id = user.id
-    providers_user.attributes = data
+    providers_user.access_token = data.delete(:token)
+    providers_user.attributes = data.delete_if{|k,_| k == :uid}
     providers_user.save!
 
     user
