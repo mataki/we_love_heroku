@@ -35,6 +35,10 @@ class Site < ActiveRecord::Base
     self.url.gsub(%r{http(?:s)?://([^/]+).+}, '\1')
   end
 
+  def host_ipaddress
+    @ipaddress ||= Resolv.getaddress(self.domain)
+  end
+
   def same_creators
     Site.where(:creator => self.creator)
   end
@@ -53,28 +57,16 @@ class Site < ActiveRecord::Base
   def url_is_heroku?
     return if self.url =~ /heroku(app)?\.com\/?/
     return true if Rails.env.test?
-    if self.url =~ /http(?:s)?:\/\/([^\/]+)/
-      host = $1
-      begin
-        ipaddress = Resolv.getaddress host
-      rescue => e
-        logger.error e.message
+    return if self.domain.blank?
+    unless APP_CONFIG[:heroku][:custom_domain].include? host_ipaddress
+      unless Resolv::DNS.new.getresource(host, Resolv::DNS::Resource::IN::ANY).name.to_s =~ /heroku(app|ssl)?\.com\/?/
         errors.add :url, ' does not appear to be a valid heroku URL'
-        return
-      end
-      unless APP_CONFIG[:heroku][:custom_domain].include? ipaddress
-        begin
-          cname = Resolv::DNS.new.getresource(host, Resolv::DNS::Resource::IN::ANY).name.to_s
-        rescue => e
-          logger.error e.message
-          errors.add :url, ' does not appear to be a valid heroku URL'
-          return
-        end
-        unless cname =~ /heroku(app|ssl)?\.com\/?/
-          errors.add :url, ' does not appear to be a valid heroku URL'
-        end
       end
     end
-
+  rescue => e
+    logger.error e.message
+    e.backtrace.each{ |line| logger.error line }
+    errors.add :url, ' does not appear to be a valid heroku URL'
+    return
   end
 end
