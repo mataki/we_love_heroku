@@ -29,7 +29,7 @@ class User < ActiveRecord::Base
 
     logger.info auth.to_yaml
 
-    user = get_user_from_hoge(providors_user, current_user, Provider.twitter.id, auth, name, image, email, uid, token, seret)
+    user = get_user_from_hoge(providers_user, current_user, Provider.twitter.id, auth, name, image, email, uid, token, seret)
   end
 
   def self.find_for_twitter_oauth(auth, current_user = nil)
@@ -42,7 +42,7 @@ class User < ActiveRecord::Base
     token = auth['credentials']['token']
     secret = auth['credentials']['secret']
 
-    user = get_user_from_hoge(providors_user, current_user, Provider.twitter.id, auth, name, image, email, uid, token, secret)
+    user = get_user_from_hoge(providers_user, current_user, Provider.twitter.id, auth, name, image, email, uid, token, secret)
   end
 
   def self.find_for_github_oauth(auth, current_user = nil)
@@ -54,10 +54,10 @@ class User < ActiveRecord::Base
     token = auth['credentials']['token']
     secret = auth['credentials']['secret']
 
-    user = get_user_from_hoge(providors_user, current_user, Provider.github.id, uid, name, image, email, uid, token)
+    user = get_user_from_hoge(providers_user, current_user, Provider.github.id, uid, name, image, email, uid, token)
   end
 
-  def self.find_or_create_from_auth_infos(providors_user, current_user, provider_id, name, image, email, uid, token, secret = nil)
+  def self.find_or_create_from_auth_infos(providers_user, current_user, provider_id, name, image, email, uid, token, secret = nil)
     if providers_user.nil?
       user = current_user || User.create!({
         :password => Devise.friendly_token[0,20],
@@ -78,15 +78,15 @@ class User < ActiveRecord::Base
       user.save!
     end
 
-    providors_user ||= ProvidersUser.new
-    providors_user.provider_id = provider_id
-    providors_user.user_id = user.id
-    providors_user.user_key = uid
-    providors_user.access_token = token
-    providors_user.secret = secret
-    providors_user.name = name
-    providors_user.email = email
-    providors_user.image = image
+    providers_user ||= ProvidersUser.new
+    providers_user.provider_id = provider_id
+    providers_user.user_id = user.id
+    providers_user.user_key = uid
+    providers_user.access_token = token
+    providers_user.secret = secret
+    providers_user.name = name
+    providers_user.email = email
+    providers_user.image = image
     providers_user.save!
 
     user
