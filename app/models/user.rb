@@ -12,17 +12,18 @@ class User < ActiveRecord::Base
   has_many :sites, :dependent => :destroy
 
   def self.find_for_facebook_oauth(auth, current_user = nil)
-    data = {:uid => auth['uid'].to_s, :access_token => auth['credentials']['token']}
-    begin
-      profiles = SocialSync::Facebook.profiles auth['credentials']['token'], {:uid => [auth['uid']]}
-      data[:name] = profiles[0][:name]
-      data[:image] = profiles[0][:pic_square]
-    rescue => e
-      logger.error e
-      data[:name] = auth['info']['name']
-      data[:image] = auth['info']['image'].gsub(/(type=)(.*)/, '\1')
+    data = build_data_from_auth(auth) do |data|
+      begin
+        profiles = SocialSync::Facebook.profiles auth['credentials']['token'], {:uid => [auth['uid']]}
+        data[:name] = profiles[0][:name]
+        data[:image] = profiles[0][:pic_square]
+      rescue => e
+        logger.error e
+        data[:name] = auth['info']['name']
+        data[:image] = auth['info']['image'].gsub(/(type=)(.*)/, '\1')
+      end
+      data[:email] = auth['info']['email']
     end
-    data[:email] = auth['info']['email']
 
     provider_id = Provider.facebook.id
 
@@ -30,11 +31,12 @@ class User < ActiveRecord::Base
   end
 
   def self.find_for_twitter_oauth(auth, current_user = nil)
-    data = {:uid => auth['uid'].to_s, :access_token => auth['credentials']['token']}
-    data[:name] = auth['info']['nickname']
-    data[:image] = auth['info']['image']
-    data[:email] = "#{auth['uid']}@twitter.example.com" # twitter return no email, so set dummy email address because of email wanne be unique.
-    data[:secret] = auth['credentials']['secret']
+    data = build_data_from_auth(auth) do |data|
+      data[:name] = auth['info']['nickname']
+      data[:image] = auth['info']['image']
+      data[:email] = "#{auth['uid']}@twitter.example.com" # twitter return no email, so set dummy email address because of email wanne be unique.
+      data[:secret] = auth['credentials']['secret']
+    end
 
     provider_id = Provider.twitter.id
 
@@ -42,46 +44,50 @@ class User < ActiveRecord::Base
   end
 
   def self.find_for_github_oauth(auth, current_user = nil)
-    data = {:uid => auth['uid'].to_s, :access_token => auth['credentials']['token']}
-    data[:name] = auth['info']['nickname']
-    data[:image] = auth['extra']['raw_info']['avatar_url']
-    data[:email] = auth['info']['email'] || "#{auth['uid']}@github.example.com"
+    data = build_data_from_auth(auth) do |data|
+      data[:name] = auth['info']['nickname']
+      data[:image] = auth['extra']['raw_info']['avatar_url']
+      data[:email] = auth['info']['email'] || "#{auth['uid']}@github.example.com"
+    end
 
     provider_id = Provider.github.id
 
     find_or_create_from_auth_infos(data, provider_id, current_user)
   end
 
+  def self.build_data_from_auth(auth)
+    result = {:user_key => auth['uid'].to_s, :access_token => auth['credentials']['token']}
+    yield result if block_given?
+    result
+  end
+
   def self.find_or_create_from_auth_infos(data, provider_id, current_user)
-    providers_user = ProvidersUser.find_by_provider_id_and_user_key provider_id, data['uid']
+    providers_user = ProvidersUser.find_or_initialize_by_provider_id_and_user_key(provider_id, data[:user_key])
 
-    user = if providers_user.nil?
-             current_user || User.create!({
-               :password => Devise.friendly_token[0,20],
-               :name => data[:name],
-               :email => data[:email],
-               :image => data[:image],
-               :default_provider_id => provider_id
-             })
-           else
-             user = User.find providers_user[:user_id]
-             if current_user.nil?
-               user.default_provider_id = provider_id
-             end
-             if user.default_provider_id == provider_id
-               user.name = data[:name]
-               user.image = data[:image]
-             end
-             user.save!
-             user
-           end
+    if providers_user.new_record?
+      providers_user.user = current_user || User.new({
+        :password => Devise.friendly_token[0,20],
+        :name => data[:name],
+        :email => data[:email],
+        :image => data[:image],
+        :default_provider_id => provider_id
+      })
+    end
+    providers_user.attributes = data
 
-    providers_user ||= ProvidersUser.new
-    providers_user.provider_id = provider_id
-    providers_user.user_id = user.id
-    providers_user.access_token = data.delete(:token)
-    providers_user.attributes = data.delete_if{|k,_| k == :uid}
-    providers_user.save!
+    user = providers_user.user
+    if current_user.nil?
+      user.default_provider_id = provider_id
+    end
+    if user.default_provider_id == provider_id
+      user.name = data[:name]
+      user.image = data[:image]
+    end
+
+    transaction do
+      user.save!
+      providers_user.save!
+    end
 
     user
   end
