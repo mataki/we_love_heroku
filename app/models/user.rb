@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 class User < ActiveRecord::Base
   # Include default devise modules. Others available are:
   # :token_authenticatable, :encryptable, :confirmable, :lockable, :timeoutable and :omniauthable
@@ -21,46 +22,9 @@ class User < ActiveRecord::Base
       name = auth['info']['name']
       image = auth['info']['image'].gsub(/(type=)(.*)/, '\1')
     end
+    email = auth['info']['email']
     logger.info auth.to_yaml
-    if providers_user.nil?
-      if current_user.nil?
-        user = User.create!({
-          :password => Devise.friendly_token[0,20],
-          :name => name,
-          :email => auth['info']['email'],
-          :image => image,
-          :default_provider_id => Provider.facebook.id
-        })
-      else
-        user = current_user
-      end
-      providers_user = ProvidersUser.create!({
-        :provider_id => Provider.facebook.id,
-        :user_id => user.id,
-        :user_key => auth['uid'].to_s,
-        :access_token => auth['credentials']['token'],
-        :name => name,
-        :email => auth['info']['email'],
-        :image => image
-      })
-    else
-      user = User.find providers_user[:user_id]
-      if current_user.nil?
-        user.default_provider_id = Provider.facebook.id
-        user.save!
-      end
-      if user.default_provider_id == Provider.facebook.id
-        user.name = name
-        user.image = image
-        user.save!
-      end
-      providers_user.name = name
-      providers_user.image = image
-      providers_user.email = auth['info']['email']
-      providers_user.access_token = auth['credentials']['token']
-      providers_user.save!
-    end
-    user
+    user = get_user_from_hoge(providors_user, current_user, auth, email, Provider.twitter.id)
   end
 
   def self.find_for_twitter_oauth(auth, current_user = nil)
@@ -70,6 +34,19 @@ class User < ActiveRecord::Base
     image = auth['info']['image']
     email = "#{auth['uid']}@twitter.example.com" # twitter return no email, so set dummy email address because of email wanne be unique.
 
+    user = get_user_from_hoge(providors_user, current_user, auth, email, Provider.twitter.id)
+  end
+
+  def self.find_for_github_oauth(auth, current_user = nil)
+    providers_user = ProvidersUser.find_by_provider_id_and_user_key Provider.github.id, auth['uid'].to_s
+    name = auth['info']['nickname']
+    image = auth['extra']['raw_info']['avatar_url']
+    email = auth['info']['email']||"#{auth['uid']}@github.example.com"
+
+    user = get_user_from_hoge(providors_user, current_user, auth, email, Provider.github.id)
+  end
+
+  def self.find_or_create_from_auth_infos(providors_user, current_user, email, auth, provider_id)
     if providers_user.nil?
       if current_user.nil?
         user = User.create!({
@@ -77,13 +54,13 @@ class User < ActiveRecord::Base
           :name => name,
           :email => email,
           :image => image,
-          :default_provider_id => Provider.twitter.id
+          :default_provider_id => provider_id
         })
       else
         user = current_user
       end
       providers_user = ProvidersUser.create!({
-        :provider_id => Provider.twitter.id,
+        :provider_id => provider_id,
         :user_id => user.id,
         :user_key => auth['uid'].to_s,
         :access_token => auth['credentials']['token'],
@@ -95,10 +72,10 @@ class User < ActiveRecord::Base
     else
       user = User.find providers_user[:user_id]
       if current_user.nil?
-        user.default_provider_id = Provider.twitter.id
+        user.default_provider_id = provider_id
         user.save!
       end
-      if user.default_provider_id == Provider.twitter.id
+      if user.default_provider_id == provider_id
         user.name = name
         user.image = image
         user.save!
@@ -109,54 +86,6 @@ class User < ActiveRecord::Base
       providers_user.email = email
       providers_user.access_token = auth['credentials']['token']
       providers_user.secret = auth['credentials']['secret']
-      providers_user.save!
-    end
-    user
-  end
-
-  def self.find_for_github_oauth(auth, current_user = nil)
-    providers_user = ProvidersUser.find_by_provider_id_and_user_key Provider.github.id, auth['uid'].to_s
-    name = auth['info']['nickname']
-    image = auth['extra']['raw_info']['avatar_url']
-    email = auth['info']['email']||"#{auth['uid']}@github.example.com"
-
-    if providers_user.nil?
-      if current_user.nil?
-        user = User.create!({
-          :password => Devise.friendly_token[0,20],
-          :name => name,
-          :email => email,
-          :image => image,
-          :default_provider_id => Provider.github.id
-        })
-      else
-        user = current_user
-      end
-      providers_user = ProvidersUser.create!({
-        :provider_id => Provider.github.id,
-        :user_id => user.id,
-        :user_key => auth['uid'].to_s,
-        :access_token => auth['credentials']['token'],
-        :name => name,
-        :email => email,
-        :image => image,
-      })
-    else
-      user = User.find providers_user[:user_id]
-      if current_user.nil?
-        user.default_provider_id = Provider.github.id
-        user.save!
-      end
-      if user.default_provider_id == Provider.github.id
-        user.name = name
-        user.image = image
-        user.save!
-      end
-
-      providers_user.name = name
-      providers_user.image = image
-      providers_user.email = email
-      providers_user.access_token = auth['credentials']['token']
       providers_user.save!
     end
     user
