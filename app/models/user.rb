@@ -24,7 +24,7 @@ class User < ActiveRecord::Base
     end
     email = auth['info']['email']
     logger.info auth.to_yaml
-    user = get_user_from_hoge(providors_user, current_user, auth, email, Provider.twitter.id)
+    user = get_user_from_hoge(providors_user, current_user, auth, name, image, email, Provider.twitter.id)
   end
 
   def self.find_for_twitter_oauth(auth, current_user = nil)
@@ -34,7 +34,7 @@ class User < ActiveRecord::Base
     image = auth['info']['image']
     email = "#{auth['uid']}@twitter.example.com" # twitter return no email, so set dummy email address because of email wanne be unique.
 
-    user = get_user_from_hoge(providors_user, current_user, auth, email, Provider.twitter.id)
+    user = get_user_from_hoge(providors_user, current_user, auth, name, image, email, Provider.twitter.id)
   end
 
   def self.find_for_github_oauth(auth, current_user = nil)
@@ -43,51 +43,41 @@ class User < ActiveRecord::Base
     image = auth['extra']['raw_info']['avatar_url']
     email = auth['info']['email']||"#{auth['uid']}@github.example.com"
 
-    user = get_user_from_hoge(providors_user, current_user, auth, email, Provider.github.id)
+    user = get_user_from_hoge(providors_user, current_user, auth, name, image, email, Provider.github.id)
   end
 
-  def self.find_or_create_from_auth_infos(providors_user, current_user, email, auth, provider_id)
+  def self.find_or_create_from_auth_infos(providors_user, current_user, auth, name, image, email, provider_id)
     if providers_user.nil?
-      if current_user.nil?
-        user = User.create!({
-          :password => Devise.friendly_token[0,20],
-          :name => name,
-          :email => email,
-          :image => image,
-          :default_provider_id => provider_id
-        })
-      else
-        user = current_user
-      end
-      providers_user = ProvidersUser.create!({
-        :provider_id => provider_id,
-        :user_id => user.id,
-        :user_key => auth['uid'].to_s,
-        :access_token => auth['credentials']['token'],
-        :secret => auth['credentials']['secret'],
+      user = current_user || User.create!({
+        :password => Devise.friendly_token[0,20],
         :name => name,
         :email => email,
         :image => image,
+        :default_provider_id => provider_id
       })
     else
       user = User.find providers_user[:user_id]
       if current_user.nil?
         user.default_provider_id = provider_id
-        user.save!
       end
       if user.default_provider_id == provider_id
         user.name = name
         user.image = image
-        user.save!
       end
-
-      providers_user.name = name
-      providers_user.image = image
-      providers_user.email = email
-      providers_user.access_token = auth['credentials']['token']
-      providers_user.secret = auth['credentials']['secret']
-      providers_user.save!
+      user.save!
     end
+
+    providors_user ||= ProvidersUser.new
+    providors_user.provider_id = provider_id
+    providors_user.user_id = user.id
+    providors_user.user_key = auth['uid'].to_s
+    providors_user.access_token = auth['credentials']['token']
+    providors_user.secret = auth['credentials']['secret']
+    providors_user.name = name
+    providors_user.email = email
+    providors_user.image = image
+    providers_user.save!
+
     user
   end
 
