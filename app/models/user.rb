@@ -12,58 +12,60 @@ class User < ActiveRecord::Base
   has_many :sites, :dependent => :destroy
 
   def self.find_for_facebook_oauth(auth, current_user = nil)
-    providers_user = ProvidersUser.find_by_provider_id_and_user_key Provider.facebook.id, auth['uid'].to_s
-    begin
-      profiles = SocialSync::Facebook.profiles auth['credentials']['token'], {:uid => [auth['uid']]}
-      name = profiles[0][:name]
-      image = profiles[0][:pic_square]
-    rescue => e
-      logger.error e
-      name = auth['info']['name']
-      image = auth['info']['image'].gsub(/(type=)(.*)/, '\1')
-    end
-    email = auth['info']['email']
-    uid = auth['uid'].to_s
-    token = auth['credentials']['token']
-    secret = auth['credentials']['secret']
-
-    logger.info auth.to_yaml
-
-    user = get_user_from_hoge(providers_user, current_user, Provider.twitter.id, auth, name, image, email, uid, token, seret)
+    find_or_create_from_auth_infos(auth, :facebook, current_user)
   end
 
   def self.find_for_twitter_oauth(auth, current_user = nil)
-    providers_user = ProvidersUser.find_by_provider_id_and_user_key Provider.twitter.id, auth['uid'].to_s
-
-    name = auth['info']['nickname']
-    image = auth['info']['image']
-    email = "#{auth['uid']}@twitter.example.com" # twitter return no email, so set dummy email address because of email wanne be unique.
-    uid = auth['uid'].to_s
-    token = auth['credentials']['token']
-    secret = auth['credentials']['secret']
-
-    user = get_user_from_hoge(providers_user, current_user, Provider.twitter.id, auth, name, image, email, uid, token, secret)
+    find_or_create_from_auth_infos(auth, :twitter, current_user)
   end
 
   def self.find_for_github_oauth(auth, current_user = nil)
-    providers_user = ProvidersUser.find_by_provider_id_and_user_key Provider.github.id, auth['uid'].to_s
-    name = auth['info']['nickname']
-    image = auth['extra']['raw_info']['avatar_url']
-    email = auth['info']['email']||"#{auth['uid']}@github.example.com"
-    uid = auth['uid'].to_s
-    token = auth['credentials']['token']
-    secret = auth['credentials']['secret']
-
-    user = get_user_from_hoge(providers_user, current_user, Provider.github.id, uid, name, image, email, uid, token)
+    find_or_create_from_auth_infos(auth, :github, current_user)
   end
 
-  def self.find_or_create_from_auth_infos(providers_user, current_user, provider_id, name, image, email, uid, token, secret = nil)
+  def self.auth_to_info_hash(auth, provider)
+    result = {}
+    case provider
+    when :facebook
+      begin
+        profiles = SocialSync::Facebook.profiles auth['credentials']['token'], {:uid => [auth['uid']]}
+        result[:name] = profiles[0][:name]
+        result[:image] = profiles[0][:pic_square]
+      rescue => e
+        logger.error e
+        result[:name] = auth['info']['name']
+        result[:image] = auth['info']['image'].gsub(/(type=)(.*)/, '\1')
+      end
+      result[:email] = auth['info']['email']
+
+    when :twitter
+      result[:name] = auth['info']['nickname']
+      result[:image] = auth['info']['image']
+      result[:email] = "#{auth['uid']}@twitter.example.com" # twitter return no email, so set dummy email address because of email wanne be unique.
+      result[:secret] = auth['credentials']['secret']
+
+    when :github
+      result[:name] = auth['info']['nickname']
+      result[:image] = auth['extra']['raw_info']['avatar_url']
+      result[:email] = auth['info']['email'] || "#{auth['uid']}@github.example.com"
+    end
+    result[:uid] = auth['uid'].to_s
+    result[:token] = auth['credentials']['token']
+
+    result
+  end
+
+  def self.find_or_create_from_auth_infos(auth, provider_name, current_user)
+    data = auth_to_info_hash(auth, provider_name)
+
+    provider_id = Provider.send(provider_name).id
+    providers_user = ProvidersUser.find_by_provider_id_and_user_key provider_id, auth['uid'].to_s
     if providers_user.nil?
       user = current_user || User.create!({
         :password => Devise.friendly_token[0,20],
-        :name => name,
-        :email => email,
-        :image => image,
+        :name => data[:name],
+        :email => data[:email],
+        :image => data[:image],
         :default_provider_id => provider_id
       })
     else
@@ -72,8 +74,8 @@ class User < ActiveRecord::Base
         user.default_provider_id = provider_id
       end
       if user.default_provider_id == provider_id
-        user.name = name
-        user.image = image
+        user.name = data[:name]
+        user.image = data[:image]
       end
       user.save!
     end
@@ -81,12 +83,7 @@ class User < ActiveRecord::Base
     providers_user ||= ProvidersUser.new
     providers_user.provider_id = provider_id
     providers_user.user_id = user.id
-    providers_user.user_key = uid
-    providers_user.access_token = token
-    providers_user.secret = secret
-    providers_user.name = name
-    providers_user.email = email
-    providers_user.image = image
+    providers_user.attributes = data
     providers_user.save!
 
     user
